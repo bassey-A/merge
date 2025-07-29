@@ -9,7 +9,7 @@ import sys
 import uuid
 import xml.etree.ElementTree as ET
 
-from factory import xml_ar_package_create
+# from factory import xml_ar_package_create
 # from log_utils.log_wrappers import error
 import autosar
 
@@ -19,9 +19,7 @@ pp = pprint.PrettyPrinter(indent=4)
 #
 
 
-# Available in python 3.9 as ...
-# def removesuffix(string: str, suffix: str):
-#     return string.removesuffix(suffix)
+# Available in python 3.9...
 def removesuffix(string: str, suffix: str) -> str:
     """
     Returns the specified string without the specified suffix.
@@ -41,9 +39,7 @@ def removesuffix(string: str, suffix: str) -> str:
     raise TypeError  # string must be a str
 
 
-# Available in python 3.9 as...
-# def removeprefix(string: str, prefix: str):
-#     return string.removeprefix(prefix)
+# Available in python 3.9...
 def removeprefix(string: str, prefix: str) -> str:
     """
     Returns the specified string without the specified prefix.
@@ -89,21 +85,6 @@ def xml_elem_str(elem: ET.Element, *, indent_with:str ="    ") -> str:
     raise TypeError
 
 
-def xml_get_namespace(elem: ET.Element) -> str:
-    """
-    Dynamically extracts the XML namespace from an element's tag.
-
-    Args:
-        elem (ET.Element): The XML element.
-
-    Returns:
-        str: The namespace URI string, or an empty string if not present.
-    """        
-    if '}' in elem.tag:
-        return elem.tag.split('}')[0][1:]
-    return ''
-
-
 def xml_elements_equal(e1: ET.Element, e2: ET.Element) -> bool:
     """
     Returns True if the two input elements contains the same content (i.e are equal).
@@ -133,7 +114,7 @@ def xml_elements_equal(e1: ET.Element, e2: ET.Element) -> bool:
     return False
 
 
-def xml_get_child_value_by_tag(elem: ET.Element, tag: str) -> Optional[str]:
+def xml_get_child_value_by_tag(elem: ET.Element, tag: str) -> str:
     """
     Get the value of a direct child element from its tag.
 
@@ -151,29 +132,19 @@ def xml_get_child_value_by_tag(elem: ET.Element, tag: str) -> Optional[str]:
     Calling this function with elem being the AR-PACKAGE elem, and tag = "SHORT-NAME", would return
     "PortInterface"
     """
+
     for child in list(elem):
-        if child.tag == f"{{{xml_get_namespace(elem)}}}{tag}":
-            print("tags match".center(100, '-'))
+        if child.tag == autosar.base.add_schema(tag):
             value = child.text
             assert value is not None
             return value
-    logging.error(f"No child found with tag '{tag}'.")
-
+    error(f"No child found with tag '{tag}'.") 
 
 def xml_set_child_value_by_tag(elem: ET.Element, tag: str, value: str) -> None:
-    """
-    Finds a direct child element by its tag and sets its text value.
-
-    Args:
-        elem (ET.Element): The parent XML element.
-        tag (str): The tag name of the child element to modify.
-        value (str): The new text value to set.
-    """
     for child in list(elem):
-        if child.tag == f"{{{xml_get_namespace(elem)}}}{tag}":
+        if child.tag == autosar.base.add_schema(tag):
             child.text = value
             assert value is not None
-
 
 def xml_get_child_elem_by_tag(elem: ET.Element, tag: str) -> str:
     """
@@ -193,103 +164,40 @@ def xml_get_child_elem_by_tag(elem: ET.Element, tag: str) -> str:
     """
 
     for child in list(elem):
-        if child.tag == f"{{{xml_get_namespace(elem)}}}{tag}":
+        if child.tag == autosar.base.add_schema(tag):
             elem = child
             assert elem is not None
             return elem
-    logging.error(f"No child found with tag '{tag}'.")
-
+    error(f"No child found with tag '{tag}'.")
 
 def xml_elem_find(elem: ET.Element, tag: str) -> Optional[ET.Element]:
-    """
-    Recursively finds the first descendant element with a given tag.
-
-    Args:
-        elem (ET.Element): The element to start the search from.
-        tag (str): The tag name to search for.
-
-    Returns:
-        Optional[ET.Element]: The first matching element, or None if not found.
-    """
-    return elem.find('.//' + f"{{{xml_get_namespace(elem)}}}{tag}")
+    return elem.find('.//' + autosar.base.add_schema(tag))
 
 
 def xml_elem_find_assert_exists(elem: ET.Element, tag: str) -> ET.Element:
-    """
-    Recursively finds the first descendant element with a given tag, asserting it exists.
-
-    Args:
-        elem (ET.Element): The element to start the search from.
-        tag (str): The tag name to search for.
-
-    Returns:
-        ET.Element: The first matching element.
-    
-    Raises:
-        AssertionError: If no matching element is found.
-    """
-    return_elem = elem.find('.//' + f"{{{xml_get_namespace(elem)}}}{tag}")
+    return_elem = elem.find('.//' + autosar.base.add_schema(tag))
     assert return_elem is not None
     return return_elem
 
 
 def xml_elem_findall(elem: ET.Element, tag: str) -> List[ET.Element]:
-    """
-    Recursively finds all descendant elements with a given tag.
-
-    Args:
-        elem (ET.Element): The element to start the search from.
-        tag (str): The tag name to search for.
-
-    Returns:
-        List[ET.Element]: A list of all matching elements.
-    """
-    return elem.findall('.//' + f"{{{xml_get_namespace(elem)}}}{tag}")
+    return elem.findall('.//' + autosar.base.add_schema(tag))
 
 
 def assert_elem_tag(elem: ET.Element, tag: Union[Tuple, str]) -> None:
-    """
-    Asserts that an element's tag matches one of the expected tag names.
-
-    Args:
-        elem (ET.Element): The element to check.
-        tag (Union[Tuple, str]): A single tag name or a tuple of possible tag names.
-    
-    Raises:
-        AssertionError: If the element's tag does not match.
-    """
     if isinstance(tag, str):
         tag = (tag, )
-    assert elem.tag in (f"{{{xml_get_namespace(elem)}}}{t}" for t in tag),\
+    assert elem.tag in (autosar.base.add_schema(t) for t in tag),\
         "Expected tags differ!"
-    
+
 
 def is_elem_tag(elem: ET.Element, tag: Union[Tuple, str]) -> bool:
-    """
-    Checks if an element's tag matches one of the expected tag names.
-
-    Args:
-        elem (ET.Element): The element to check.
-        tag (Union[Tuple, str]): A single tag name or a tuple of possible tag names.
-
-    Returns:
-        bool: True if the element's tag is a match, False otherwise.
-    """
     if isinstance(tag, str):
         tag = (tag, )
-    return elem.tag in (f"{{{xml_get_namespace(elem)}}}{t}" for t in tag)
+    return elem.tag in (autosar.base.add_schema(t) for t in tag)
 
 
 def get_elem_tag_without_schema(elem: ET.Element) -> str:
-    """
-    Gets the tag name of an element without its namespace prefix.
-
-    Args:
-        elem (ET.Element): The XML element.
-
-    Returns:
-        str: The local tag name.
-    """
     return elem.tag[elem.tag.rfind('}') + 1:]
 
 
@@ -312,16 +220,7 @@ def xml_elem_namespace(elem: ET.Element) -> str:
 
     return ""
 
-
 def xml_elem_namespace_new(elem: ET.Element) -> str:
-    """
-    Returns the namespace of a specified tag.
-
-    Args:
-        elem (ET.Element): The XML element.
-    Returns:
-        str: The namespace of the XML element.
-    """
     if not isinstance(elem, ET.Element):
         raise TypeError("xml_elem_namespace: elem != Et.Element")
 
@@ -346,7 +245,6 @@ def xml_strip_namespace(elem: ET.Element) -> str:
             return elem.tag
     else:
         raise TypeError
-
 
 
 def xml_elem_type_findall(elem: ET.Element, elem_type: str, name: str) -> List[ET.Element]:
@@ -392,29 +290,16 @@ def xml_elem_type_find(elem: ET.Element, elem_type: str, name: str) -> Optional[
 
 
 def xml_ar_package_find(elem: ET.Element, name: str) -> Optional[ET.Element]:
-    """
-    Finds an AR-PACKAGE within an element by its SHORT-NAME.
+    # Returns AR-PACKAGE found in elem where
+    # SHORT-NAME matches given name
 
-    Args:
-        elem (ET.Element): The element to search within.
-        name (str): The SHORT-NAME of the AR-PACKAGE to find.
-
-    Returns:
-        Optional[ET.Element]: The matching AR-PACKAGE element, or None.
-    """
     return xml_elem_type_find(elem, 'AR-PACKAGE', name)
 
 
 def xml_ar_package_validate(elem: ET.Element) -> bool:
-    """
-    Validates the basic structure of an AR-PACKAGE element.
-
-    Args:
-        elem (ET.Element): The AR-PACKAGE element to validate.
-
-    Returns:
-        bool: True if the package has an AR-PACKAGES sub-container, False otherwise.
-    """
+    # Validate structure of a elem
+    # Returns True if 'AR-PACKAGES' is present
+    # or False if it isn't
     assert_elem_tag(elem, 'AR-PACKAGE')
     assert_elem_tag(elem[0], 'SHORT-NAME')
     assert_elem_tag(elem[1], 'ELEMENTS')
@@ -429,14 +314,6 @@ def xml_ar_package_validate(elem: ET.Element) -> bool:
 
 
 def xml_ref_transform_all(refs: List[ET.Element], src_path, dst_path) -> None:
-    """
-    Replaces a substring in the text of all provided reference elements.
-
-    Args:
-        refs (List[ET.Element]): A list of reference elements to modify.
-        src_path (str): The substring to be replaced.
-        dst_path (str): The new substring to insert.
-    """
     # Transform source to destination refs paths
 
     for ref in refs:
@@ -449,6 +326,7 @@ def xml_ref_transform_all(refs: List[ET.Element], src_path, dst_path) -> None:
 
 def xml_elem_child_remove_all(elem, children):
     # Remove elem elements
+
     for child in children:
         elem.remove(child)
 
@@ -489,7 +367,6 @@ def xml_elem_append(elem, child, parents):
         elem.append(child)
         parents[child] = elem
 
-
 def xml_elem_append_at_index(elem, child, index, parents):
     # Insert child to elem at index (child can be a list)
     # Updates parent list (needed for path retrieval)
@@ -510,6 +387,7 @@ def xml_elem_append_at_index(elem, child, index, parents):
 
 def xml_elem_add_ar_packages(elem, parents):
     # Appends 'AR-PACKAGES' to the elem
+
     child = autosar.base.create_element('AR-PACKAGES')
     elem.append(child.xmlref)
     parents[child] = elem
@@ -517,10 +395,8 @@ def xml_elem_add_ar_packages(elem, parents):
 
 def xml_ecu_sys_name_get(arxml):
     # Returns an ECU System name from the arxml
-    ### This actually returns a <class 'xml.etree.ElementTree.Element'> object
 
-    ecu_sys = xml_ar_package_find(arxml.xml.getroot(), 'ECUSystem') # this function expects an
-    #ET.Element as parameter, but is receiving an ET.ElementTree
+    ecu_sys = xml_ar_package_find(arxml.xml.getroot(), 'ECUSystem')
     assert ecu_sys is not None, "The ECUSystem "\
                                 "package is not found in %s!" % arxml
     assert_elem_tag(ecu_sys[1], 'AR-PACKAGES')
@@ -544,7 +420,6 @@ def xml_elem_extend_name_clashed():
 
 def xml_ar_packages_missing():
     return any(MISSING_SRC_PACKAGE)
-
 
 def xml_elem_extend_clashed_ports(el, prefixed_el, dst_arxml):
     """
@@ -571,8 +446,6 @@ def xml_elem_extend_clashed_ports(el, prefixed_el, dst_arxml):
     for connector in dst_delegation_connectors:
         if dst_el_path == xml_get_child_value_by_tag(connector, 'OUTER-PORT-REF'):
             xml_set_child_value_by_tag(connector, 'OUTER-PORT-REF', prefixed_el_dst_path)
-
-
 def get_element_index(parent, tag):
     #gets the index of the child element tag with respect to its parent.
     #if there is no child element with the tag, it returns -1 (useful to be used in conditions)
@@ -581,7 +454,6 @@ def get_element_index(parent, tag):
         if child is element:
             return i
     return -1
-
 
 def xml_elem_extend(
     src_elems,
@@ -712,50 +584,31 @@ def xml_ar_package_root_copy(src_arxml,
                             grace_list)
 
 
-
-def replace_uuid(elem: ET.Element) -> Optional[str]:
+def replace_uuid(elem):
     """
         Given an Autosar element, replace its UUID with a newly generated one.
         Used to avoid duplicate UUIDs in .arxmls since DaVinci tools complain
         about this problem. Instead of completely removing UUIDs we should
         replace them and keep track of the replacement in order to have Autosar
         element tracebility back to the tools that produced them initially.
-
-    Args:
-        elem: The XML element whose UUID should be replaced.
-
-    Returns:
-        The new UUID as a string if a replacement was made, otherwise None.
     """
-    # Prevent KeyError by using elem.get('UUID') rather than elem.attrib['UUID']
-    original_uuid = elem.get("UUID")
 
-    if original_uuid is not None:
+    elem_uuid = elem.attrib['UUID']
+    if elem_uuid:
         new_uuid = str(uuid.uuid4())
-        
-        logging.debug(
-            "Replacing UUID of element %s with new UUID %s",
+        logging.debug("Replacing UUID of element %s with new UUID %s",
             xml_elem_str(elem).split('\n', 2)[0:2],
             new_uuid
         )
-        
-        # Directly set the new UUID. No need to call attrib.pop.
+        elem.attrib.pop("UUID", None)
         elem.set("UUID", new_uuid)
-        
-        return new_uuid
     else:
-        # This warning is now correctly triggered if the attribute is missing.
-        logging.warning(
-            "Trying to replace UUID of element %s with no UUID",
+        logging.warning("Trying to replace UUID of element %s with no UUID",
             xml_elem_str(elem).split('\n', 2)[0:2]
         )
-        # Return None to indicate no action was taken. The original function
-        # would have crashed with a NameError here.
-        return None
+    return new_uuid
 
-
-
-def ensure_unique_uuids(arxml: ET.ElementTree):
+def ensure_unique_uuids(arxml):
     """
     Ensures every XML element with a UUID attribute has a unique UUID.
     Updates duplicate UUIDs and writes changes back to the ARXML file.
@@ -763,8 +616,7 @@ def ensure_unique_uuids(arxml: ET.ElementTree):
     root = arxml.xml.getroot()
     seen = {}
     for elem in root.findall('.//*[@UUID]'):
-        # current_uuid = elem.attrib['UUID']
-        current_uuid = elem.get('UUID')
+        current_uuid = elem.attrib['UUID']
         logging.debug("Checking UUID %s", current_uuid)
         if current_uuid in seen:
             new_uuid = replace_uuid(elem)
@@ -864,23 +716,13 @@ def xml_get_elem_from_path(src_arxml, path):
 
     elem = src_arxml.xml.getroot()
     for name in path_elem_names:
-        # Get the namespace from the current element in the tree
-        namespace = xml_get_namespace(elem)
-        
-        # Construct the full, namespaced tag for SHORT-NAME
-        short_name_tag = f"{{{namespace}}}SHORT-NAME"
-        
-        # longer runtime, but removes dependency on deprecated library fxn
-        found_child = None
-        for child in elem.iter(): # .iter() searches all descendants
-            child_short_name_el = child.find(short_name_tag)
-            if child_short_name_el is not None and child_short_name_el.text == name:
-                found_child = child
-                break
+        elem = elem.find(".//*[" + autosar.base.add_schema('SHORT-NAME') +
+                         "='" + name + "']")
         assert elem is not None,\
             "Could not traverse path %s, %s element not found" % (path, name)
-        elem = found_child
+
     return elem
+
 
 def get_root_sw_composition_type(arxml):
     """
@@ -917,30 +759,7 @@ def get_root_sw_composition_type(arxml):
             "composition in %s cannot be found!", arxml.filename
         )
         return None
-    
 
-############################################# ADDITIONS ##############################################
-
-# ### Changes:
-# # * Replaced index access (`channel[0].text`) with `util.xml_get_child_element_by_tag` call.
-# # * This provides error handling if a channel is missing a `SHORT-NAME`.
-# # * Explicitly returns `None` if no matching channel is found
-# def xml_get_physical_channel(arxml, ch_type, name):
-#     """
-#     Finds a PhysicalChannel from a given type and name.
-#     """
-#     channels = xml_elem_findall(arxml.xml.getroot(), ch_type)
-#     ### change channels = util.xml_elem_findall(arxml.xml.getroot(), ch_type)
-#     for channel in channels:
-#         # Safely find the SHORT-NAME element
-#         short_name_el = util.xml_get_child_elem_by_tag(channel, 'SHORT-NAME')
-#         if short_name_el is not None and short_name_el.text == name:
-#             return channel
-#     return None
-
-
-##################################### END ADDITIONS #################################################
-    
 
 class ScriptOptions:
     @classmethod

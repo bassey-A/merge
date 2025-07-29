@@ -351,7 +351,7 @@ def copy_isignal_and_pdu_triggerings(src_arxml,
     # Transform singal triggering refs
     util.xml_ref_transform_all(refs, src_path, dst_path)
     # Copy elements and update path map
-    path_map.update(util.xml_elem_extend( list(src_trig), dst_trig,
+    path_map.update(util.xml_elem_extend(list(src_trig), dst_trig,
                                     src_arxml, dst_arxml, graceful=graceful))
 
     return path_map
