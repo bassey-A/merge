@@ -175,7 +175,7 @@ def fetch_pdu(src_arxml) -> List[str]:
 # Original Version was very long and used many asserts and indices.
 
 
-def copy_communication_packages_old(src_arxml, dst_arxml):
+def copy_communication_packages(src_arxml, dst_arxml):
     # Copy Communication source to destination packages
     # enlisted in _COMMUNICATION_PACKAGES_
     # Copy ASSOCIATED-COM-I-PDU-GROUP-REFS
@@ -530,97 +530,266 @@ def copy_network_endpoint(src_arxml, dst_arxml, dst_eth_physical_channel):
 
     return path_map
 
-# --- Main Test Execution ---
-def main():
-    """
-    Main function to load sample ARXML data and run the copy_network_endpoint process.
-    This version uses the real util.py functions for testing.
-    """
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-    # --- Sample Data Setup ---
-    namespace = "http://autosar.org/schema/r4.0"
-    source_xml_str = f"""
-    <AUTOSAR xmlns="{namespace}">
-      <AR-PACKAGES>
-        <AR-PACKAGE>
-          <ELEMENTS>
-            <ETHERNET-PHYSICAL-CHANNEL>
-              <SHORT-NAME>SRC_ETH_CH</SHORT-NAME>
-              <NETWORK-ENDPOINTS>
-                <!-- This endpoint is unique and should be copied -->
-                <NETWORK-ENDPOINT UUID="ep-src-1">
-                  <SHORT-NAME>DP_Endpoint</SHORT-NAME>
-                  <IPV-4-CONFIGURATION><IPV-4-ADDRESS>192.168.1.10</IPV-4-ADDRESS></IPV-4-CONFIGURATION>
-                </NETWORK-ENDPOINT>
-                <!-- This endpoint is a duplicate and should be skipped -->
-                <NETWORK-ENDPOINT UUID="ep-src-2">
-                  <SHORT-NAME>HI_Endpoint_Duplicate</SHORT-NAME>
-                  <IPV-4-CONFIGURATION><IPV-4-ADDRESS>10.0.0.1</IPV-4-ADDRESS></IPV-4-CONFIGURATION>
-                </NETWORK-ENDPOINT>
-              </NETWORK-ENDPOINTS>
-            </ETHERNET-PHYSICAL-CHANNEL>
-          </ELEMENTS>
-        </AR-PACKAGE>
-      </AR-PACKAGES>
-    </AUTOSAR>
-    """
+def copy_socket_connection_bundles(src_arxml, dst_arxml,
+                                   dst_eth_physical_channel,
+                                   sock_addr_map, isig_pdu_path_map):
+    # Copies an Ethernet DP's SocketConnectionBundles to destination channel
+    # Uses sock_addr_map to update the CLIENT-PORT-REFs and SERVER-PORT-REFs
+    # Uses isig_pdu_path_map to update the PDU-TRIGGERING-REFs
 
-    destination_xml_str = f"""
-    <AUTOSAR xmlns="{namespace}">
-      <AR-PACKAGES>
-        <AR-PACKAGE>
-          <ELEMENTS>
-            <ETHERNET-PHYSICAL-CHANNEL>
-              <SHORT-NAME>DST_ETH_CH</SHORT-NAME>
-              <NETWORK-ENDPOINTS>
-                <!-- This endpoint already exists in the destination -->
-                <NETWORK-ENDPOINT UUID="ep-dst-1">
-                  <SHORT-NAME>HI_Endpoint</SHORT-NAME>
-                  <IPV-4-CONFIGURATION><IPV-4-ADDRESS>10.0.0.1</IPV-4-ADDRESS></IPV-4-CONFIGURATION>
-                </NETWORK-ENDPOINT>
-              </NETWORK-ENDPOINTS>
-            </ETHERNET-PHYSICAL-CHANNEL>
-          </ELEMENTS>
-        </AR-PACKAGE>
-      </AR-PACKAGES>
-    </AUTOSAR>
-    """
+    # Get source and destination Ethernet channels
+    src_ch = util.xml_elem_find(src_arxml.xml.getroot(),
+                           'ETHERNET-PHYSICAL-CHANNEL')
+    assert src_ch is not None,\
+        "Source element 'ETHERNET-PHYSICAL-CHANNEL' is not found!"
+    dst_ch = xml_get_physical_channel(dst_arxml,
+                                      'ETHERNET-PHYSICAL-CHANNEL',
+                                      dst_eth_physical_channel)
+    assert dst_ch is not None,\
+        "Destination element 'ETHERNET-PHYSICAL-CHANNEL' is not found!"
 
-    # Create ArxmlFile wrapper objects
-    source_element = ET.fromstring(source_xml_str)
-    source_tree = ET.ElementTree(source_element)
-    src_arxml = ArxmlFile(source_tree)
+    # Get SocketConnectionBundles
+    src_sock_conn_bundles = util.xml_elem_find(src_ch, 'CONNECTION-BUNDLES')
+    assert src_sock_conn_bundles is not None,\
+        "Source element 'CONNECTION-BUNDLES' is not found!"
+    dst_sock_conn_bundles = util.xml_elem_find(dst_ch, 'CONNECTION-BUNDLES')
+    assert dst_sock_conn_bundles is not None,\
+        "Destination element 'CONNECTION-BUNDLES' is not found!"
 
-    target_element = ET.fromstring(destination_xml_str)
-    target_tree = ET.ElementTree(target_element)
-    dst_arxml = ArxmlFile(target_tree)
-    
-    output_file = 'network_endpoint_merged_output.arxml'
+    # Update CLIENT-PORT-REFs, SERVER-PORT-REF, PDU-TRIGGERING-REFs
+    for sock_conn_bundle in src_sock_conn_bundles:
 
-    print("--- Destination NETWORK-ENDPOINTS before copy ---")
-    dst_ch_before = util.xml_get_physical_channel(dst_arxml, 'ETHERNET-PHYSICAL-CHANNEL', "HIASystemCoreInternal")
-    print(ET.tostring(dst_ch_before.find(f".//{{{namespace}}}NETWORK-ENDPOINTS"), encoding='unicode').strip())
-    print("-" * 40)
+        client_port_ref = util.xml_elem_find(sock_conn_bundle,
+                                        'CLIENT-PORT-REF')
+        client_port_ref.text = sock_addr_map[client_port_ref.text]
 
-    # Run the function
-    path_map = copy_network_endpoint(src_arxml, dst_arxml, "DST_ETH_CH")
-    
-    print("\n--- Destination NETWORK-ENDPOINTS after copy ---")
-    dst_ch_after = util.xml_get_physical_channel(dst_arxml, 'ETHERNET-PHYSICAL-CHANNEL', "HIASystemCoreInternal")
-    # Register namespace for clean printing
-    ET.register_namespace('', namespace)
-    print(ET.tostring(dst_ch_after.find(f".//{{{namespace}}}NETWORK-ENDPOINTS"), encoding='unicode').strip())
-    print("-" * 40)
+        server_port_ref = util.xml_elem_find(sock_conn_bundle,
+                                        'SERVER-PORT-REF')
+        server_port_ref.text = sock_addr_map[server_port_ref.text]
 
-    print(f"\nPath map returned: {path_map}")
-    
-    # Save the result
-    dst_arxml.xml.write(output_file, encoding='utf-8', xml_declaration=True)
-    print(f"Successfully saved modified XML to '{output_file}'")
+        pdu_trig_refs = util.xml_elem_findall(sock_conn_bundle,
+                                           'PDU-TRIGGERING-REF')
+        for pdu_trig_ref in pdu_trig_refs:
+            pdu_trig_ref.text = isig_pdu_path_map[pdu_trig_ref.text]
+
+    # Extend destination socket connection bundle list with source socket
+    # connection bundle list. Detect conflicts by looking at 'HEADER-ID'.
+    util.xml_elem_extend(src_sock_conn_bundles, dst_sock_conn_bundles,
+                    src_arxml, dst_arxml,
+                    src_name=lambda el: util.xml_elem_find(el, 'HEADER-ID').text,
+                    dst_name=lambda el: util.xml_elem_find(el, 'SHORT-NAME').text)
 
 
-if __name__ == "__main__":
-    # This script now relies on the actual util.py functions being available
-    # and correctly implemented. No mocks are needed.
-    main()
+def copy_socket_addresses(src_arxml, dst_arxml,
+                          dst_eth_physical_channel,
+                          net_ends_path_map):
+    # Copies an Ethernet DP's SocketAddresses to destination channel
+    # Uses net_ends_path_map to update the NetworkEndpointsRefs
+
+    # Note that this function makes the following assumptions:
+    # - EthernetPhysicalChannels only contain one COMMUNICATION-CONNECTOR-REF
+
+    # Get source and destination Ethernet channels
+    src_ch = util.xml_elem_find(src_arxml.xml.getroot(),
+                           'ETHERNET-PHYSICAL-CHANNEL')
+    assert src_ch is not None, \
+        "Source element 'ETHERNET-PHYSICAL-CHANNEL' is not found!"
+    dst_ch = xml_get_physical_channel(dst_arxml,
+                                      'ETHERNET-PHYSICAL-CHANNEL',
+                                      dst_eth_physical_channel)
+    assert dst_ch is not None, \
+        "Destination element 'ETHERNET-PHYSICAL-CHANNEL' is not found!"
+
+    # Get socket addresses
+    src_sock_addrs = util.xml_elem_find(src_ch, 'SOCKET-ADDRESSS')
+    assert src_sock_addrs is not None,\
+        "Source element 'SOCKET-ADDRESSS' is not found!"
+    dst_sock_addrs = util.xml_elem_find(dst_ch, 'SOCKET-ADDRESSS')
+    assert dst_sock_addrs is not None,\
+        "Destination element 'SOCKET-ADDRESSS' is not found!"
+
+    # Get ConnectorRef by looking in the Ethernet Physical Channel
+    comm_connector_ref = util.xml_elem_find(dst_ch, 'COMMUNICATION-CONNECTOR-REF')
+    # Correct NetworkEndpointRefs
+    for sock_addr in src_sock_addrs:
+        net_end_ref = util.xml_elem_find(sock_addr, 'NETWORK-ENDPOINT-REF')
+        net_end_ref.text = net_ends_path_map[net_end_ref.text]
+        multicast_ref = util.xml_elem_find(sock_addr, 'MULTICAST-CONNECTOR-REF')
+    if multicast_ref is not None:
+        multicast_ref.text = comm_connector_ref.text
+    # Correct ConnectorRef, if present
+    for sock_addr in src_sock_addrs:
+        connector_ref = util.xml_elem_find(sock_addr, 'CONNECTOR-REF')
+        if connector_ref is not None:
+            connector_ref.text = comm_connector_ref.text
+    #util.xml_elem_child_remove_all(dst_sock_addrs, [socket for socket in dst_sock_addrs
+    #                              if util.xml_elem_find(socket, 'PORT-NUMBER') is None])
+
+    # Extend destination socket address list with source socket address
+    # list. Detect conflicts by looking at 'PORT-NUMBER'.
+    path_map = util.xml_elem_extend(
+        src_sock_addrs, dst_sock_addrs,
+        src_arxml, dst_arxml,
+        src_name=lambda el: util.xml_elem_find(el, 'PORT-NUMBER').text,
+        dst_name=lambda el: util.xml_elem_find(el, 'SHORT-NAME').text)
+
+    return path_map
+
+
+def create_socket_connection_bundle(bundle, src_arxml, dst_arxml,
+                                    frames, pdus, dst_eth_physical_channel):
+    # Creates various socket adapter elements such as:
+    # SO-AD-ROUTING-GROUP, NETWORK-ENDPOINT, SOCKET-ADDRESS
+    # and SOCKET-CONNECTION-BUNDLE with corresponding
+    # SOCKET-CONNECTION-IPDU-IDENTIFIER (populated from pdus)
+
+    # Get ECU System names
+    ecu_dst = util.xml_ecu_sys_name_get(dst_arxml)
+    ecu_src = util.xml_ecu_sys_name_get(src_arxml)
+
+    # An ECU System name transformer
+    def get_name(s, src=ecu_src, dst=ecu_dst):
+        return s.replace('Hix', dst).replace('ECUx', src)
+
+    # Get destination Communication package
+    dst_com = util.xml_ar_package_find(dst_arxml.xml.getroot(), 'Communication')
+    assert dst_com is not None, "Destination Communication "\
+                                "package is not found!"
+
+    # Get soad routing group
+    dst_rgroups = util.xml_ar_package_find(dst_com, 'SoAdRoutingGroup')
+    if dst_rgroups is None:
+        # No package found; create AR-PACKAGE
+        # and append it to the AR-PACKAGES
+        name = 'SoAdRoutingGroup'
+        dst_rgroups = factory.xml_ar_package_create(name, str(uuid.uuid4()) +
+                                            '-Communication-' + name)
+        util.assert_elem_tag(dst_com[1], 'AR-PACKAGES')
+        util.xml_elem_append(dst_com[1], dst_rgroups, dst_arxml.parents)
+
+    # Create routing group
+    rgroup = factory.xml_soad_routing_group_create(get_name(bundle['routing_group']))
+    util.assert_elem_tag(dst_rgroups[1], 'ELEMENTS')
+    util.xml_elem_extend(rgroup, dst_rgroups[1], src_arxml, dst_arxml,
+                    src_name=lambda el: el.text)
+    rgroup_path = util.xml_elem_get_abs_path(rgroup, dst_arxml)
+    # Get physical channel
+    dst_ch = xml_get_physical_channel(dst_arxml, _CHANNEL_MAPPING_[1],
+                                      dst_eth_physical_channel)
+    assert dst_ch is not None, "Destination element %s is "\
+                               "not found!" % _CHANNEL_MAPPING_[1]
+    # Get network endpoints
+    dst_net_ends = util.xml_elem_find(dst_ch, 'NETWORK-ENDPOINTS')
+    assert dst_net_ends is not None, "Destination element "\
+                                     "'NETWORK-ENDPOINTS' is not found!"
+
+    def get_network_endpoint(dst_net_ends, end):
+        # Returns existing or creates a new endpoint
+        net_end = util.xml_elem_type_find(dst_net_ends, 'NETWORK-ENDPOINT',
+                                     get_name(end['name']))
+        if net_end is None:
+            net_end = factory.xml_network_endpoint_ipv4_create(get_name(end['name']),
+                                                       end['address'],
+                                                       end['source'],
+                                                       end['mask'])
+            util.xml_elem_append(dst_net_ends, net_end, dst_arxml.parents)
+        return net_end
+
+    # Create server port
+    #
+
+    server_port = bundle['server_port']
+    # Get network endpoint
+    net_end = get_network_endpoint(dst_net_ends,
+                                   server_port['network_endpoint'])
+    # Get network endpoing path
+    net_end_path = util.xml_elem_get_abs_path(net_end, dst_arxml)
+    # Get network endpoint reference
+    net_end_ref = util.xml_elem_type_find(dst_arxml.xml.getroot(),
+                                     'NETWORK-ENDPOINT-REF',
+                                     net_end_path)
+    assert net_end_ref is not None, "Destination element "\
+                                    "NETWORK-ENDPOINTS-REF:%s is "\
+                                    "not found!" % net_end_path
+    # Get network endpoint reference path
+    net_end_ref_path = util.xml_elem_get_abs_path(net_end_ref, dst_arxml)
+
+    # Create 1st socket address
+    soad1 = factory.xml_socket_address_udp_create(get_name(server_port['name']),
+                                          get_name(server_port[
+                                           'app_endpoint_name']),
+                                          net_end_path,
+                                          server_port['udp_port'],
+                                          net_end_ref_path)
+    # Get socket addresses
+    dst_soads = util.xml_elem_find(dst_ch, 'SOCKET-ADDRESSS')
+    assert dst_soads is not None, "Destination element "\
+                                  "'SOCKET-ADDRESSS' is not found!"
+    util.xml_elem_extend(soad1, dst_soads, src_arxml, dst_arxml,
+                    src_name=lambda el: el.text)
+
+    # Create client port
+    #
+
+    client_port = bundle['client_port']
+    # Get network endpoint
+    net_end = get_network_endpoint(dst_net_ends,
+                                   client_port['network_endpoint'])
+    # Get network endpoing path
+    net_end_path = util.xml_elem_get_abs_path(net_end, dst_arxml)
+
+    # Create 2nd socket address
+    soad2 = factory.xml_socket_address_udp_create(get_name(client_port['name']),
+                                          get_name(client_port[
+                                           'app_endpoint_name']),
+                                          net_end_path,
+                                          client_port['udp_port'],
+                                          net_end_ref_path)
+    util.xml_elem_extend(soad2, dst_soads, src_arxml, dst_arxml,
+                    src_name=lambda el: el.text)
+
+    # Get paths
+    server_ref = util.xml_elem_get_abs_path(soad1, dst_arxml)
+    client_ref = util.xml_elem_get_abs_path(soad2, dst_arxml)
+
+    # Create socket connection bundle
+    #
+
+    # Get destination pdu triggerings
+    dst_trig = util.xml_elem_find(dst_ch, 'PDU-TRIGGERINGS')
+    assert dst_trig is not None, "Destination %s:PDU-TRIGGERINGS "\
+                                 "is not found!" % _CHANNEL_MAPPING_[0]
+    # Filter only new ones
+    dst_trig = [trig for trig in dst_trig
+                if any(pdu in trig[0].text
+                       for pdu in pdus)]
+    # Create socket connection ipdu triggerings
+    ipdus = []
+    for trig in dst_trig:
+        util.assert_elem_tag(trig[1], 'I-PDU-PORT-REFS')
+        assert len(trig[1]) == 1, "Invalid number of I-PDU-PORT-REFs "\
+                                  "in the PDU-TRIGGERING:%s!" % trig[0].text
+        frame = [frames[pdu] for pdu in frames.keys() if pdu == trig[0].text.replace('PduTr', '')]
+        assert len(frame) == 1, "The PDU-TRIGGERING:%s can't be matched!"\
+                                % trig[0].text
+        trig_spec = [frame[0]['id'],
+                     trig[1][0].text,
+                     util.xml_elem_get_abs_path(trig, dst_arxml),
+                     rgroup_path]
+        ipdu = factory.xml_socket_connection_ipdu_id_create(*trig_spec)
+        util.xml_elem_append(ipdus, ipdu, dst_arxml.parents)
+
+    # Create socket connection bundle
+    bundle = factory.xml_socket_connection_bundle_create(get_name(bundle['name']),
+                                                 client_ref, server_ref)
+    # Get bundles pdus elem
+    bpdus = util.xml_elem_find(bundle, 'PDUS')
+    bpdus.extend(ipdus)
+
+    # Get connection bundles
+    dst_bundles = util.xml_elem_find(dst_ch, 'CONNECTION-BUNDLES')
+    assert dst_bundles is not None, "Destination %s:CONNECTION-BUNDLES "\
+                                    "is not found!" % _CHANNEL_MAPPING_[0]
+    util.xml_elem_extend(bundle, dst_bundles, src_arxml, dst_arxml,
+                    src_name=lambda el: el.text)

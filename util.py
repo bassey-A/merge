@@ -921,22 +921,22 @@ def get_root_sw_composition_type(arxml):
 
 ############################################# ADDITIONS ##############################################
 
-# ### Changes:
-# # * Replaced index access (`channel[0].text`) with `util.xml_get_child_element_by_tag` call.
-# # * This provides error handling if a channel is missing a `SHORT-NAME`.
-# # * Explicitly returns `None` if no matching channel is found
-# def xml_get_physical_channel(arxml, ch_type, name):
-#     """
-#     Finds a PhysicalChannel from a given type and name.
-#     """
-#     channels = xml_elem_findall(arxml.xml.getroot(), ch_type)
-#     ### change channels = util.xml_elem_findall(arxml.xml.getroot(), ch_type)
-#     for channel in channels:
-#         # Safely find the SHORT-NAME element
-#         short_name_el = util.xml_get_child_elem_by_tag(channel, 'SHORT-NAME')
-#         if short_name_el is not None and short_name_el.text == name:
-#             return channel
-#     return None
+### Changes:
+# * Replaced index access (`channel[0].text`) with `util.xml_get_child_element_by_tag` call.
+# * This provides error handling if a channel is missing a `SHORT-NAME`.
+# * Explicitly returns `None` if no matching channel is found
+def xml_get_physical_channel(arxml, ch_type, name):
+    """
+    Finds a PhysicalChannel from a given type and name.
+    """
+    channels = xml_elem_findall(arxml.xml.getroot(), ch_type)
+    ### change channels = util.xml_elem_findall(arxml.xml.getroot(), ch_type)
+    for channel in channels:
+        # Safely find the SHORT-NAME element
+        short_name_el = util.xml_get_child_elem_by_tag(channel, 'SHORT-NAME')
+        if short_name_el is not None and short_name_el.text == name:
+            return channel
+    return None
 
 
 ##################################### END ADDITIONS #################################################

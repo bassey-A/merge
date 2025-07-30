@@ -91,6 +91,16 @@ NAMESPACE = {'ns': 'http://autosar.org/schema/r4.0'}
 def xml_get_physical_channel(arxml, ch_type, name):
     """
     Finds a PhysicalChannel from a given type and name.
+
+    Args:
+        arxml (ArxmlFile): The ARXML file wrapper object to search within.
+        ch_type (str): The tag name of the channel type to find 
+                       (e.g., 'ETHERNET-PHYSICAL-CHANNEL').
+        name (str): The text value of the <SHORT-NAME> tag to match.
+
+    Returns:
+        xml.etree.ElementTree.Element: The found channel element, or None if no
+        match is found
     """
     channels = util.xml_elem_findall(arxml.xml.getroot(), ch_type)
     ### change channels = util.xml_elem_findall(arxml.xml.getroot(), ch_type)
@@ -108,10 +118,15 @@ def xml_get_physical_channel(arxml, ch_type, name):
 def fetch_pdu(src_arxml):
     """
     Fetches all I-SIGNAL-I-PDU names from the Communication package.
+
+    Args:
+        src_arxml (ArxmlFile): The source ARXML file wrapper object.
+
+    Returns:
+        list[str]: A list of all found I-SIGNAL-I-PDU short names.
+
     """
-    # Use the helper to find the package. Raises an error if not found.
-    src_com = util.xml_ar_package_find(src_arxml.getroot(), 'Communication')
-### change    src_com = util.find_ar_package(src_arxml.xml.getroot(), 'Communication')
+    src_com = util.xml_ar_package_find(src_arxml.xml.getroot(), 'Communication')
     
     isig_pdus = util.xml_elem_findall(src_com, 'I-SIGNAL-I-PDU')
     
@@ -124,15 +139,85 @@ def fetch_pdu(src_arxml):
     return pdus
 
 
+def copy_communication_packages(src_arxml, dst_arxml):
+    """
+    Merges communication-related packages from a source to a destination ARXML.
+    This function copies packages enlisted in _COMMUNICATION_PACKAGES_ from the 'Communication'
+    AR-PACKAGE of the source ARXML to the destination.
+    It explicitly logs name clashes for 'Pdu' packages and validates PDU versus frame lengths.
 
-def copy_communication_packages_old(src_arxml, dst_arxml):
-    pass
+    Args:
+        src_arxml (ArxmlFile): Source ARXML wrapper object.
+        dst_arxml (ArxmlFile): Destination ARXML wrapper object.
+
+    Returns:
+        list: List of I-SIGNAL-I-PDU short-names found during copy (mainly from 'Pdu' package).
+
+    Raises:
+        AssertionError: if required packages or elements are not found.
+    """
+    src_com = util.xml_ar_package_find(src_arxml.xml.getroot(), 'Communication')
+    assert src_com is not None, "Source Communication package is not found!"
+    dst_com = util.xml_ar_package_find(dst_arxml.xml.getroot(), 'Communication')
+    assert dst_com is not None, "Destination Communication package is not found!"
+    pdus = []
+    for name in _COMMUNICATION_PACKAGES_:
+        src = util.xml_ar_package_find(src_com, name)
+        dst = util.xml_ar_package_find(dst_com, name)
+        if src is None:
+            logging.warning("Missing source package Communication/%s", name)
+            continue
+        if dst is None:
+            dst = factory.xml_ar_package_create(name, str(uuid.uuid4()) +
+                                        '-Communication-' + name)
+            util.assert_elem_tag(dst_com[1], 'AR-PACKAGES')
+            util.xml_elem_append(dst_com[1], dst, dst_arxml.parents)
+        if name == 'Pdu':
+            isig_pdus = util.xml_elem_findall(src_com, 'I-SIGNAL-I-PDU')
+            util.assert_elem_tag(dst[1], 'ELEMENTS')
+            util.xml_elem_extend(isig_pdus, dst[1], src_arxml, dst_arxml)
+            pdus = [pdu[0].text for pdu in isig_pdus if pdu[0] is not None]
+            isig_pdus_len = [(util.xml_elem_find(pdu, "LENGTH").text, pdu[0].text) for pdu in isig_pdus if pdu[0] is not None and util.xml_elem_find(pdu, "LENGTH") is not None]
+            isig_pdus_len = sorted(isig_pdus_len, key=lambda x: x[1])
+            frames = util.xml_elem_findall(src_com, 'CAN-FRAME')
+            if frames is not None:
+                frame_len = [(util.xml_elem_find(frame, "FRAME-LENGTH").text,
+                              util.xml_elem_find(frame, "PDU-REF").text.split("/")[-1]) \
+                             for frame in frames if util.xml_elem_find(frame, "FRAME-LENGTH") is not None and util.xml_elem_find(frame, "PDU-REF") is not None]
+                frame_len = sorted(frame_len, key=lambda x: x[1])
+                if len(frame_len) > 0 and len(isig_pdus_len) > 0:
+                    for i, pdu_cfg in enumerate(isig_pdus_len):
+                        if i < len(frame_len) and frame_len[i] != pdu_cfg:
+                            logging.warning("Found a mismatch: in PDU: %s, frame length: %s, PDU length: %s",\
+                                pdu_cfg[1], frame_len[i][0], pdu_cfg[0])
+                            break
+            continue
+        util.assert_elem_tag(src[1], 'ELEMENTS')
+        util.assert_elem_tag(dst[1], 'ELEMENTS')
+        util.xml_elem_extend(src[1], dst[1], src_arxml, dst_arxml)
+    return pdus
 
 
 def copy_fibex_elements(src_arxml, dst_arxml, pdus):
     """
     Copies Communication-related FIBEX elements from a source to a destination
     ARXML file, filtering by package paths and a provided list of PDU names.
+    It finds all <FIBEX-ELEMENT-REF> and <FIBEX-ELEMENT-REF-CONDITIONAL> elements 
+    within the source's 'VehicleProject/FIBEX-ELEMENTS' container and  copies only 
+    those references whose paths match either a standard communication package 
+    path or one of the PDU names provided in the `pdus` list.
+
+    Args:
+        src_arxml (ArxmlFile): The source ARXML file wrapper object.
+        dst_arxml (ArxmlFile): The destination ARXML file wrapper object.
+        pdus (list[str]): A list of PDU short names to use for filtering.
+
+    Side Effects:
+        - Modifies the `dst_arxml` object by adding the filtered FIBEX elements.
+
+    Raises:
+        AssertionError: If the 'VehicleProject' or 'FIBEX-ELEMENTS' containers
+                        are not found in either the source or destination.
 
     * Changes: removed external dependencies.
     """
@@ -218,6 +303,35 @@ def copy_isignal_and_pdu_triggerings(src_arxml, dst_arxml, pdus, dst_eth_physica
     """
     Copies I-SIGNAL-TRIGGERINGS and PDU-TRIGGERINGS from a source to a destination,
     handling path transformations and filtering in a single function.
+
+    This function performs two main operations:
+    1.  Copies all <I-SIGNAL-TRIGGERING> elements from the source channel to
+        the destination channel, transforming their internal <I-SIGNAL-PORT-REF>
+        paths to be valid in the destination context.
+    2.  Filters the <PDU-TRIGGERING> elements in the source channel based on the
+        `pdus` list, transforms their internal references, and copies the 
+        filtered results to the destination.
+
+    Args:
+        src_arxml (ArxmlFile): The source ARXML file wrapper object.
+        dst_arxml (ArxmlFile): The destination ARXML file wrapper object.
+        pdus (list[str]): A list of PDU short names to filter PDU-TRIGGERINGS.
+        dst_eth_physical_channel (str): The short name of the destination 
+                                        ETHERNET-PHYSICAL-CHANNEL.
+        graceful (bool): If True, name clashes during the copy are ignored. 
+                         If False, they may cause an error depending on the
+                         implementation of `util.xml_elem_extend`.
+
+    Returns:
+        dict: A mapping of old (source) element paths to their new (destination)
+              paths for all copied elements.
+
+    Side Effects:
+        - Modifies the `dst_arxml` object by adding new triggering elements.
+        - Modifies the `src_arxml` object by transforming reference paths
+          within its elements before they are copied.
+        - Modifies the `src_arxml` object by removing the <FRAME-TRIGGERINGS>
+          container from the source channel.
     """
     path_map = {}
 
@@ -322,7 +436,18 @@ def prepare_ethernet_physical_channel(dst_arxml, dst_eth_physical_channel):
 
     Note that this function might need some tweaking in case the 
     ETHERNET-PHYSICAL-CHANNEL coming out of Capital Networks has 
-    other sub-elements which require specific ordering
+    other sub-elements which require specific ordering.
+
+    Args:
+        dst_arxml (ArxmlFile): The destination ARXML file wrapper to be modified.
+        dst_eth_physical_channel (str): The short name of the channel to prepare.
+
+    Side Effects:
+        - Modifies the `dst_arxml` object by inserting missing elements into the
+          specified channel to enforce a correct schema order.
+
+    Raises:
+        AssertionError: If the specified ETHERNET-PHYSICAL-CHANNEL is not found.
     """
     dst_ch = xml_get_physical_channel(dst_arxml,
                                       'ETHERNET-PHYSICAL-CHANNEL',
@@ -410,6 +535,26 @@ def copy_network_endpoint(src_arxml, dst_arxml, dst_eth_physical_channel):
     * src_arxml contains only two NetworkEndpoints (its own and HIx's)
     * dst_arxml always has at least one NetworkEndpoint (HIx's)
     * each NetworkEndpoint only contains one IPV4Configuration
+
+    This function finds all <NETWORK-ENDPOINT> elements in the source Ethernet
+    channel and copies them to the destination channel, avoiding duplicates.
+    Duplicates are identified by comparing the text of the <IPV-4-ADDRESS> tag.
+
+    Args:
+        src_arxml (ArxmlFile): The source ARXML file wrapper object.
+        dst_arxml (ArxmlFile): The destination ARXML file wrapper object.
+        dst_eth_physical_channel (str): The short name of the destination channel.
+
+    Returns:
+        dict: A path map of the old source paths to the new destination paths
+              for the elements that were successfully copied.
+
+    Side Effects:
+        - Modifies the `dst_arxml` object by adding new NETWORK-ENDPOINT elements.
+
+    Raises:
+        AssertionError: If the source or destination channels or their
+                        NETWORK-ENDPOINTS containers are not found.
     """
     # A nested helper function to safely extract the IP address.
     # This keeps the logic self-contained within the main function.
@@ -463,16 +608,277 @@ def copy_network_endpoint(src_arxml, dst_arxml, dst_eth_physical_channel):
     return path_map
 
 
-def copy_socket_connection_bundles(src_arxml, dst_arxml):
-	pass
+def copy_socket_connection_bundles(src_arxml, dst_arxml,
+                                   dst_eth_physical_channel,
+                                   sock_addr_map, isig_pdu_path_map):
+    """
+    Copies SocketConnectionBundles to a destination channel, safely updating
+    all necessary references and failing fast if data is inconsistent.
+    
+    WARNING: This function modifies the `src_arxml` object in place by
+    updating reference paths before copying the elements.
+
+    The function iterates through all <SOCKET-CONNECTION-BUNDLE> elements in the
+    source channel, transforms their internal references using the provided
+    path maps, and then copies the modified elements to the destination channel.
+
+    Args:
+        src_arxml (ArxmlFile): The source ARXML file wrapper. It is MODIFIED IN PLACE.
+        dst_arxml (ArxmlFile): The destination ARXML file wrapper.
+        dst_eth_physical_channel (str): The short name of the destination channel.
+        sock_addr_map (dict): A map of old socket address paths to new paths.
+        isig_pdu_path_map (dict): A map of old PDU triggering paths to new paths.
+
+    Side Effects:
+        - Modifies `src_arxml` by rewriting reference paths.
+        - Modifies `dst_arxml` by adding the transformed bundles.
+
+    Raises:
+        AssertionError: If required elements are missing or if a path in a
+                        reference is not found as a key in the provided maps.
+    """
+    # Get source and destination containers, asserting their existence.
+    src_ch = util.xml_elem_find(src_arxml.xml.getroot(), 'ETHERNET-PHYSICAL-CHANNEL')
+    assert src_ch is not None, "Source element 'ETHERNET-PHYSICAL-CHANNEL' is not found!"
+    dst_ch = xml_get_physical_channel(dst_arxml, 'ETHERNET-PHYSICAL-CHANNEL', dst_eth_physical_channel)
+    assert dst_ch is not None, f"Destination element 'ETHERNET-PHYSICAL-CHANNEL' named '{dst_eth_physical_channel}' is not found!"
+
+    # Get Socket Connection
+    src_sock_conn_bundles = util.xml_elem_find(src_ch, 'CONNECTION-BUNDLES')
+    assert src_sock_conn_bundles is not None, "Source element 'CONNECTION-BUNDLES' is not found!"
+    
+    dst_sock_conn_bundles = util.xml_elem_find(dst_ch, 'CONNECTION-BUNDLES')
+    assert dst_sock_conn_bundles is not None, "Destination element 'CONNECTION-BUNDLES' is not found!"
+
+    # Loop through the bundles and transform their internal references.
+    for bundle in src_sock_conn_bundles:
+        # --- Update CLIENT-PORT-REF ---
+        client_port_ref = util.xml_elem_find(bundle, 'CLIENT-PORT-REF')
+        assert client_port_ref is not None, f"Bundle '{bundle.findtext('SHORT-NAME')}' is missing CLIENT-PORT-REF"
+        assert client_port_ref.text in sock_addr_map, \
+            f"Path '{client_port_ref.text}' not found in the provided sock_addr_map."
+        client_port_ref.text = sock_addr_map[client_port_ref.text]
+
+        # --- Update SERVER-PORT-REF ---
+        server_port_ref = util.xml_elem_find(bundle, 'SERVER-PORT-REF')
+        assert server_port_ref is not None, f"Bundle '{bundle.findtext('SHORT-NAME')}' is missing SERVER-PORT-REF"
+        assert server_port_ref.text in sock_addr_map, \
+            f"Path '{server_port_ref.text}' not found in the provided sock_addr_map."
+        server_port_ref.text = sock_addr_map[server_port_ref.text]
+
+        # --- Update all PDU-TRIGGERING-REFs ---
+        pdu_trig_refs = util.xml_elem_findall(bundle, 'PDU-TRIGGERING-REF')
+        for pdu_trig_ref in pdu_trig_refs:
+            assert pdu_trig_ref.text in isig_pdu_path_map, \
+                f"Path '{pdu_trig_ref.text}' not found in the provided isig_pdu_path_map."
+            pdu_trig_ref.text = isig_pdu_path_map[pdu_trig_ref.text]
+
+    # Extend the destination with the elements.
+    util.xml_elem_extend(
+        src_sock_conn_bundles,
+        dst_sock_conn_bundles,
+        src_arxml,
+        dst_arxml,
+        src_name=lambda el: util.xml_elem_find(el, 'HEADER-ID').text,
+        dst_name=lambda el: util.xml_elem_find(el, 'SHORT-NAME').text
+    )
 
 
-def copy_socket_addresses(src_arxml, dst_arxml):
-	pass
+def copy_socket_addresses(src_arxml, dst_arxml,
+                          dst_eth_physical_channel,
+                          net_ends_path_map):
+    """
+    Copies Ethernet DP's SocketAddresses to a destination channel, safely updating all necessary
+    references and failing fast if data is inconsistent.
 
+    ASSUMPTIONS
+    * EthernetPhysicalChannels only contain one COMMUNICATION-CONNECTOR-REF
+    """
+    # Find source and destination containers, asserting their existence.
+    src_ch = util.xml_elem_find(src_arxml.xml.getroot(), 'ETHERNET-PHYSICAL-CHANNEL')
+    assert src_ch is not None, "Source element 'ETHERNET-PHYSICAL-CHANNEL' is not found!"
 
-def create_socket_connection_bundle(bundle, src_arxml, dst_arxml):
-	pass
+    dst_ch = util.xml_elem_type_find(dst_arxml.xml.getroot(), 'ETHERNET-PHYSICAL-CHANNEL', dst_eth_physical_channel)
+    assert dst_ch is not None, f"Destination element 'ETHERNET-PHYSICAL-CHANNEL' named '{dst_eth_physical_channel}' is not found!"
+
+    src_sock_addrs_container = util.xml_elem_find(src_ch, 'SOCKET-ADDRESSS')
+    assert src_sock_addrs_container is not None, "Source element 'SOCKET-ADDRESSS' is not found!"
+
+    dst_sock_addrs_container = util.xml_elem_find(dst_ch, 'SOCKET-ADDRESSS')
+    assert dst_sock_addrs_container is not None, "Destination element 'SOCKET-ADDRESSS' is not found!"
+
+    # Get the destination connector reference, which will be used for transformations.
+    comm_connector_ref_el = util.xml_elem_find(dst_ch, 'COMMUNICATION-CONNECTOR-REF')
+    assert comm_connector_ref_el is not None and comm_connector_ref_el.text is not None, \
+        "Destination channel is missing a valid COMMUNICATION-CONNECTOR-REF."
+    comm_connector_ref_text = comm_connector_ref_el.text
+
+    # Get a list of the source elements to be processed.
+    source_socket_addresses = util.xml_elem_findall(src_sock_addrs_container, 'SOCKET-ADDRESS')
+    
+    # Loop through the ORIGINAL source addresses and transform their internal references.
+    # NOTE: This modifies the source tree in place.
+    for sock_addr in source_socket_addresses:
+        # --- Update NETWORK-ENDPOINT-REF ---
+        net_end_ref = util.xml_elem_find(sock_addr, 'NETWORK-ENDPOINT-REF')
+        assert net_end_ref is not None, f"Socket Address '{util.xml_elem_find(sock_addr, 'SHORT-NAME').text}' is missing NETWORK-ENDPOINT-REF."
+        assert net_end_ref.text in net_ends_path_map, f"Path '{net_end_ref.text}' not found in the provided net_ends_path_map."
+        net_end_ref.text = net_ends_path_map[net_end_ref.text]
+
+        # --- Update MULTICAST-CONNECTOR-REF (if it exists) ---
+        multicast_ref = util.xml_elem_find(sock_addr, 'MULTICAST-CONNECTOR-REF')
+        if multicast_ref is not None:
+            multicast_ref.text = comm_connector_ref_text
+
+        # --- Update CONNECTOR-REF (if it exists) ---
+        connector_ref = util.xml_elem_find(sock_addr, 'CONNECTOR-REF')
+        if connector_ref is not None:
+            connector_ref.text = comm_connector_ref_text
+
+    # Extend the destination with the modified source elements.
+    path_map = util.xml_elem_extend(
+        source_socket_addresses,
+        dst_sock_addrs_container,
+        src_arxml,
+        dst_arxml,
+        src_name=lambda el: util.xml_elem_find(el, 'PORT-NUMBER').text,
+        dst_name=lambda el: util.xml_elem_find(el, 'SHORT-NAME').text
+    )
+
+    return path_map
+
+### Incomplete
+def create_socket_connection_bundle(bundle_data, src_arxml, dst_arxml,
+                                    frames, pdus, dst_eth_physical_channel):
+    """
+    Creates various socket adapter elements and a SOCKET-CONNECTION-BUNDLE.
+    
+    """
+    # Self-Contained Helper Functions
+    def _get_or_create_ar_package(parent_pkg, pkg_name, arxml_parents):
+        """Finds or creates a generic AR-PACKAGE within a parent's AR-PACKAGES container."""
+        pkg = util.xml_ar_package_find(parent_pkg, pkg_name)
+        if pkg is None:
+            logging.info(f"Creating missing AR-PACKAGE: {pkg_name}")
+            container = parent_pkg[1] # Assumes container is the second child
+            util.assert_elem_tag(container, 'AR-PACKAGES')
+            pkg = factory.xml_ar_package_create(pkg_name, str(uuid.uuid4()) +
+                                                '-Communication-' + pkg_name)
+            util.xml_elem_append(container, pkg, arxml_parents)
+        return pkg
+
+    def _get_or_create_network_endpoint(dst_net_ends_container, endpoint_data, name_transformer):
+        """Finds an existing NETWORK-ENDPOINT or creates a new one."""
+        endpoint_name = name_transformer(endpoint_data['name'])
+        net_end = util.xml_elem_type_find(dst_net_ends_container, 'NETWORK-ENDPOINT', endpoint_name)
+        if net_end is None:
+            logging.info(f"Creating missing NETWORK-ENDPOINT: {endpoint_name}")
+            net_end = factory.xml_network_endpoint_ipv4_create(
+                endpoint_name,
+                endpoint_data['address'],
+                endpoint_data['source'],
+                endpoint_data['mask']
+            )
+            util.xml_elem_append(dst_net_ends_container, net_end, dst_arxml.parents)
+        return net_end
+
+    # Main Function Logic
+
+    # Setup and Name Transformation
+    ecu_dst = util.xml_ecu_sys_name_get(dst_arxml)
+    ecu_src = util.xml_ecu_sys_name_get(src_arxml)
+    name_transformer = lambda s: s.replace('Hix', ecu_dst).replace('ECUx', ecu_src)
+
+    dst_com = util.xml_ar_package_find(dst_arxml.xml.getroot(), 'Communication')
+    assert dst_com is not None, "Destination Communication package is not found!"
+
+    # Create SoAd Routing Group
+    dst_rgroups_pkg = _get_or_create_ar_package(dst_com, 'SoAdRoutingGroup', dst_arxml.parents)
+    rgroup = factory.xml_soad_routing_group_create(name_transformer(bundle_data['routing_group']))
+    elements_container = util.xml_elem_find_assert_exists(dst_rgroups_pkg, 'ELEMENTS')
+    util.xml_elem_append(elements_container, rgroup, dst_arxml.parents)
+    rgroup_path = util.xml_elem_get_abs_path(rgroup, dst_arxml)
+
+    # Get Destination Channel and Containers
+    dst_ch = util.xml_elem_type_find(dst_arxml.xml.getroot(), 'ETHERNET-PHYSICAL-CHANNEL', dst_eth_physical_channel)
+    assert dst_ch is not None, f"Destination ETHERNET-PHYSICAL-CHANNEL '{dst_eth_physical_channel}' is not found!"
+    dst_net_ends = util.xml_elem_find_assert_exists(dst_ch, 'NETWORK-ENDPOINTS')
+    dst_soads = util.xml_elem_find_assert_exists(dst_ch, 'SOCKET-ADDRESSS')
+    
+    # Create Server and Client Network Endpoints and Socket Addresses
+    # The original function's lookup for always failed this assertion, will investigate fyrther
+    # The correct reference path is the COMMUNICATION-CONNECTOR-REF from the destination channel.
+    connector_ref = util.xml_elem_find_assert_exists(dst_ch, 'COMMUNICATION-CONNECTOR-REF')
+    connector_ref_path = connector_ref.text
+    assert connector_ref_path is not None, "Destination channel is missing COMMUNICATION-CONNECTOR-REF text."
+
+    # Server Port
+    server_port_data = bundle_data['server_port']
+    server_net_end = _get_or_create_network_endpoint(dst_net_ends, server_port_data['network_endpoint'], name_transformer)
+    server_net_end_path = util.xml_elem_get_abs_path(server_net_end, dst_arxml)
+    server_sock_addr = factory.xml_socket_address_udp_create(
+        name_transformer(server_port_data['name']),
+        name_transformer(server_port_data['app_endpoint_name']),
+        server_net_end_path,
+        server_port_data['udp_port'],
+        connector_ref_path
+    )
+    util.xml_elem_append(dst_soads, server_sock_addr, dst_arxml.parents)
+    server_ref = util.xml_elem_get_abs_path(server_sock_addr, dst_arxml)
+
+    # Client Port
+    client_port_data = bundle_data['client_port']
+    client_net_end = _get_or_create_network_endpoint(dst_net_ends, client_port_data['network_endpoint'], name_transformer)
+    client_net_end_path = util.xml_elem_get_abs_path(client_net_end, dst_arxml)
+    client_sock_addr = factory.xml_socket_address_udp_create(
+        name_transformer(client_port_data['name']),
+        name_transformer(client_port_data['app_endpoint_name']),
+        client_net_end_path,
+        client_port_data['udp_port'],
+        connector_ref_path
+    )
+    util.xml_elem_append(dst_soads, client_sock_addr, dst_arxml.parents)
+    client_ref = util.xml_elem_get_abs_path(client_sock_addr, dst_arxml)
+
+    # Create Socket Connection IPDU Identifiers
+    dst_pdu_trigs_container = util.xml_elem_find_assert_exists(dst_ch, 'PDU-TRIGGERINGS')
+    pdus_to_match = set(pdus)
+    filtered_dst_trigs = [
+        trig for trig in dst_pdu_trigs_container
+        if util.xml_elem_find(trig, 'SHORT-NAME') is not None and any(pdu in util.xml_elem_find(trig, 'SHORT-NAME').text for pdu in pdus_to_match)
+    ]
+    
+    ipdus = []
+    for trig in filtered_dst_trigs:
+        short_name_el = util.xml_elem_find(trig, 'SHORT-NAME')
+        assert short_name_el is not None, "PDU-TRIGGERING is missing SHORT-NAME"
+        
+        pdu_name = short_name_el.text.replace('PduTr', '')
+        frame_data = frames.get(pdu_name)
+        assert frame_data is not None, f"The PDU-TRIGGERING '{short_name_el.text}' cannot be matched to a frame!"
+
+        ipdu_port_refs_container = util.xml_elem_find_assert_exists(trig, 'I-PDU-PORT-REFS')
+        assert len(ipdu_port_refs_container) == 1, f"Invalid number of I-PDU-PORT-REFs in PDU-TRIGGERING: {short_name_el.text}"
+        
+        ipdu_port_ref_text = ipdu_port_refs_container[0].text
+        trig_path = util.xml_elem_get_abs_path(trig, dst_arxml)
+
+        ipdu = factory.xml_socket_connection_ipdu_id_create(
+            frame_data['id'],
+            ipdu_port_ref_text,
+            trig_path,
+            rgroup_path
+        )
+        ipdus.append(ipdu)
+
+    # Create and Finalize the Socket Connection Bundle
+    new_bundle = factory.xml_socket_connection_bundle_create(name_transformer(bundle_data['name']), client_ref, server_ref)
+    bpdus = util.xml_elem_find_assert_exists(new_bundle, 'PDUS')
+    for ipdu in ipdus:
+        bpdus.append(ipdu)
+
+    dst_bundles = util.xml_elem_find_assert_exists(dst_ch, 'CONNECTION-BUNDLES')
+    util.xml_elem_append(dst_bundles, new_bundle, dst_arxml.parents)
 
 
 def add_mr_com_flavour(dst_arxml, can_frames, can_pdus):
