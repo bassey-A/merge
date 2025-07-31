@@ -747,7 +747,7 @@ def copy_socket_addresses(src_arxml, dst_arxml,
 
     return path_map
 
-### Incomplete
+
 def create_socket_connection_bundle(bundle_data, src_arxml, dst_arxml,
                                     frames, pdus, dst_eth_physical_channel):
     """

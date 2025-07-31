@@ -160,51 +160,51 @@ def main():
     # Configure basic logging to see the output
     logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
 
-    arxmls = read_files()
-    #target = ET.parse(arxmls[1])
-    source_one = read_arxml_contents('SRC_one.arxml')
-    target_one = read_arxml_contents('Target_one.arxml')
-    source_two = read_arxml_contents('SRC_one.arxml')
-    target_two = read_arxml_contents('Target_one.arxml')
+    # arxmls = read_files()
+    # target = ET.parse(arxmls[1])
+    # source_one = read_arxml_contents('SRC_one.arxml')
+    # target_one = read_arxml_contents('Target_one.arxml')
+    # source_two = read_arxml_contents('SRC_one.arxml')
+    # target_two = read_arxml_contents('Target_one.arxml')
 
 
     # ensure_unique_uuids(target)
-    # with open('HIA_com_merger.py', '+r') as a:
-    #     a_merge = a.readlines()
-    # with open('HIB_com_merger.py', '+r') as b:
-    #     b_merge = b.readlines()
-    # with open('HIC_com_merger.py', '+r') as c:
-    #     c_merge = c.readlines()
-    # a_fxns = [line.strip() for line in a_merge if line.startswith('def')]
-    # b_fxns = [line.strip() for line in b_merge if line.startswith('def')]
-    # c_fxns = [line.strip() for line in c_merge if line.startswith('def')]
-    # print(f"A: {len(a_fxns)}\tB: {len(b_fxns)}\tC: {len(c_fxns)}")
-    # for x, (y, z) in enumerate(zip(sorted(a_fxns), sorted(b_fxns)), start=1):
-    #     print(f'{x:3}:    {y.ljust(85)}{z}')
-    # for fxn in a_fxns:
-    #     if fxn not in b_fxns:
-    #         print(f"{fxn}: {fxn in b_fxns}")
+    with open('HIA_com_merger.py', '+r') as a:
+        a_merge = a.readlines()
+    with open('HIB_com_merger.py', '+r') as b:
+        b_merge = b.readlines()
+    with open('HIC_com_merger.py', '+r') as c:
+        c_merge = c.readlines()
+    a_fxns = [line.strip() for line in a_merge if line.startswith('def')]
+    b_fxns = [line.strip() for line in b_merge if line.startswith('def')]
+    c_fxns = [line.strip() for line in c_merge if line.startswith('def')]
+    print(f"A: {len(a_fxns)}\tB: {len(b_fxns)}\tC: {len(c_fxns)}")
+    for x, (y, z) in enumerate(zip(sorted(a_fxns), sorted(b_fxns)), start=1):
+        print(f'{x:3}:    {y.ljust(85)}{z}')
+    for fxn in a_fxns:
+        if fxn not in b_fxns:
+            print(f"{fxn}: {fxn in b_fxns}")
 
-    # for fxn in b_fxns:
-    #     if fxn not in a_fxns:
-    #         print(f"{fxn}: {fxn in a_fxns}")
+    for fxn in b_fxns:
+        if fxn not in a_fxns:
+            print(f"{fxn}: {fxn in a_fxns}")
     
-    # common_fxns = [fxn for fxn in c_fxns if fxn in a_fxns and fxn in b_fxns]
+    common_fxns = [fxn for fxn in c_fxns if fxn in a_fxns and fxn in b_fxns]
 
 
 
 
     print('COMMON FUNCTIONS'.center(200, '-'))
-    # for i, j in enumerate(common_fxns):
-    #     print(f"{i:3} ---> {j}")
-    print(f"TYpeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee{type(source_one)}")
-    print(dir(ET.Element))
-    print(dir(ET.ElementTree))
-    pdus = (hair.fetch_pdu(source_one))
-    print(pdus)
-    hair.copy_fibex_elements_old(source_one, target_one, pdus)
-    hair.copy_fibex_elements(source_two, target_two, pdus)
-    print(util.xml_elem_str(target_one) == util.xml_elem_str(target_two))
+    for i, j in enumerate(common_fxns):
+        print(f"{i:3} ---> {j}")
+    # print(f"TYpeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee{type(source_one)}")
+    # print(dir(ET.Element))
+    # print(dir(ET.ElementTree))
+    # pdus = (hair.fetch_pdu(source_one))
+    # print(pdus)
+    # hair.copy_fibex_elements_old(source_one, target_one, pdus)
+    # hair.copy_fibex_elements(source_two, target_two, pdus)
+    # print(util.xml_elem_str(target_one) == util.xml_elem_str(target_two))
 
 
 if __name__ == '__main__':
